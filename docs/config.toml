@@ -1,4 +1,5 @@
 site_name = "s3site"
+base_path = "/s3site"
 
 [highlight]
 light = "github"
