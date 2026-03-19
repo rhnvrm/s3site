@@ -1,0 +1,13 @@
+# Binaries
+/s3site
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+bin/
+_site/

@@ -1,0 +1,13 @@
+site_name = "s3site"
+
+[highlight]
+light = "github"
+dark = "github-dark"
+
+[[links]]
+title = "GitHub"
+url = "https://github.com/rhnvrm/s3site"
+
+[extra]
+tagline = "Serve static sites from S3 archives"
+footer = '&copy; <a href="https://github.com/rhnvrm">rhnvrm</a>'
