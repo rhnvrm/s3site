@@ -11,8 +11,25 @@ Hosted mode is the recommended path for running `s3site` behind a declarative in
 
 ## Install
 
+### Go install
+
 ```bash
 go install github.com/rhnvrm/s3site/cmd/s3site@latest
+```
+
+### Nix
+
+```bash
+nix run github:rhnvrm/s3site
+```
+
+Or consume the package from another flake:
+
+```nix
+inputs.s3site.url = "github:rhnvrm/s3site";
+
+# ...
+inputs.s3site.packages.${system}.default
 ```
 
 ## Quick start
