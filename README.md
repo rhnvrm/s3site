@@ -109,6 +109,12 @@ For hosted deployments, the intended split is:
 | `-storage` | `S3SITE_STORAGE` | `memory` | Storage mode: `memory` or `disk` |
 | `-data-dir` | `S3SITE_DATA_DIR` | `$TMPDIR/s3site-data` | Directory for disk storage |
 
+## Upgrade note
+
+If you previously used `-admin-host`, startup now fails unless you also pass `-allow-insecure-admin`.
+
+That is intentional. The browser admin has no authentication and is now explicit opt-in only.
+
 ## Refresh flow
 
 Typical CI flow in hosted mode:
@@ -187,7 +193,7 @@ export AWS_S3_ACCESS_KEY=minioadmin
 export AWS_S3_SECRET_KEY=minioadmin
 export AWS_S3_BUCKET=testbucket
 
-go test ./... -short
+go test -short ./...
 ```
 
 Run full integration tests with a live MinIO instance on `127.0.0.1:9000`.

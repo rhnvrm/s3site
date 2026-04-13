@@ -207,6 +207,57 @@ func TestRefreshHostsRequiresHostedMode(t *testing.T) {
 	}
 }
 
+func TestObjectKeyForHostUsesHostedOverride(t *testing.T) {
+	sm := NewSiteManager(SiteManagerConfig{
+		S3:     setupDummyS3(),
+		Bucket: "bucket",
+		Prefix: "sites/",
+		HostedSites: []HostedSite{
+			{Hostname: "example.com", Key: "custom/example.tar.gz"},
+		},
+	})
+	if err := sm.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := sm.objectKeyForHost("example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "custom/example.tar.gz" {
+		t.Fatalf("unexpected key %q", got)
+	}
+}
+
+func TestObjectKeyForHostRejectsUndeclaredHostedHost(t *testing.T) {
+	sm := NewSiteManager(SiteManagerConfig{
+		S3:     setupDummyS3(),
+		Bucket: "bucket",
+		Prefix: "sites/",
+		HostedSites: []HostedSite{
+			{Hostname: "example.com", Key: "custom/example.tar.gz"},
+		},
+	})
+	if err := sm.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sm.objectKeyForHost("other.example.com"); err == nil {
+		t.Fatal("expected undeclared hosted host to fail")
+	}
+}
+
+func TestObjectKeyForHostDiscoveryDefaults(t *testing.T) {
+	sm := NewSiteManager(SiteManagerConfig{Prefix: "sites/"})
+	got, err := sm.objectKeyForHost("example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "sites/example.com.tar.gz" {
+		t.Fatalf("unexpected key %q", got)
+	}
+}
+
 func TestCleanTarPathRoundTrip(t *testing.T) {
 	name, err := cleanTarPath("assets/app.js")
 	if err != nil {

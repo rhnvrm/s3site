@@ -82,7 +82,11 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 		}
 		defer file.Close()
 
-		key := sm.Prefix() + hostname + ".tar.gz"
+		key, err := sm.objectKeyForHost(hostname)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		_, err = sm.S3().FilePut(simples3.UploadInput{
 			Bucket:      sm.Bucket(),
 			ObjectKey:   key,
@@ -116,7 +120,11 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 			return
 		}
 
-		key := sm.Prefix() + hostname + ".tar.gz"
+		key, err := sm.objectKeyForHost(hostname)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		err = sm.S3().FileDelete(simples3.DeleteInput{
 			Bucket:    sm.Bucket(),
 			ObjectKey: key,
@@ -140,6 +148,17 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (sm *SiteManager) objectKeyForHost(hostname string) (string, error) {
+	if sm.HostedMode() {
+		site, ok := sm.declaredSites[hostname]
+		if !ok {
+			return "", fmt.Errorf("hostname is not declared: %s", hostname)
+		}
+		return site.Key, nil
+	}
+	return sm.Prefix() + hostname + ".tar.gz", nil
 }
 
 const adminHTML = `<!DOCTYPE html>
