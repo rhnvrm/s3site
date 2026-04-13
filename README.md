@@ -1,18 +1,13 @@
 # s3site
 
-Serve static websites from tar.gz archives in S3. Zero restarts.
+Serve static websites from tar.gz archives in S3-compatible object storage with hot reloads.
 
-Your CI pipeline builds a static site, packs it into a tar.gz named
-after the hostname, and pushes it to S3. s3site picks it up and serves
-it. When the archive changes, the site hot-reloads. Delete the archive
-and the site goes away.
+`s3site` now supports two operating modes:
 
-```
-s3://static-assets/sites/
-  foo.example.com.tar.gz     -> serves foo.example.com
-  bar.example.com.tar.gz     -> serves bar.example.com
-  docs.mysite.org.tar.gz     -> serves docs.mysite.org
-```
+1. **Discovery mode** — legacy bucket scan for `*.tar.gz` objects under a prefix.
+2. **Hosted mode** — explicitly declared sites backed by stable object keys, with local-only refresh control.
+
+Hosted mode is the recommended path for running `s3site` behind a declarative ingress layer such as Caddy/Nix.
 
 ## Install
 
@@ -20,7 +15,9 @@ s3://static-assets/sites/
 go install github.com/rhnvrm/s3site/cmd/s3site@latest
 ```
 
-## Usage
+## Quick start
+
+### Discovery mode
 
 ```bash
 s3site \
@@ -31,28 +28,69 @@ s3site \
   -poll 30s
 ```
 
-For MinIO or S3-compatible stores:
+Objects under the prefix are mapped by filename:
 
-```bash
-s3site -bucket my-bucket -endpoint http://minio:9000 -listen :8080
+```txt
+s3://static-assets/sites/
+  foo.example.com.tar.gz     -> serves foo.example.com
+  bar.example.com.tar.gz     -> serves bar.example.com
 ```
 
-### Admin UI
+### Hosted mode
 
-Set `-admin-host` to serve an admin UI on a dedicated hostname:
+Declare the sites that are allowed to go live:
+
+```json
+{
+  "sites": [
+    { "hostname": "rohanverma.net" },
+    { "hostname": "oddship.net" }
+  ]
+}
+```
+
+Start `s3site` with a local control socket:
 
 ```bash
 s3site \
   -bucket static-assets \
   -prefix sites/ \
-  -listen :8080 \
-  -admin-host admin.example.com
+  -sites-config /etc/s3site/sites.json \
+  -control-socket /run/s3site/control.sock \
+  -listen 127.0.0.1:9001 \
+  -poll 10m
 ```
 
-The admin UI at `admin.example.com` lets you list, upload, and delete
-sites from the browser. No admin endpoints are exposed on hosted sites.
+When `key` is omitted, `s3site` derives it as:
 
-### Flags and environment variables
+```txt
+<prefix><hostname>.tar.gz
+```
+
+So the config above watches:
+
+```txt
+sites/rohanverma.net.tar.gz
+sites/oddship.net.tar.gz
+```
+
+Refresh one or more declared sites after CI uploads a new tarball:
+
+```bash
+s3site refresh -socket /run/s3site/control.sock rohanverma.net
+```
+
+That keeps deploys fast without requiring frequent bucket scans.
+
+## Production model
+
+For hosted deployments, the intended split is:
+
+- **Caddy / Nix / ingress layer**: TLS, public domains, reverse proxying, service wiring
+- **s3site**: content activation, object fetch, hot reload
+- **CI**: build tarball, upload to a stable key, call local refresh
+
+## Flags and environment variables
 
 | Flag | Env | Default | Description |
 |------|-----|---------|-------------|
@@ -64,106 +102,105 @@ sites from the browser. No admin endpoints are exposed on hosted sites.
 | `-prefix` | `S3SITE_PREFIX` | | S3 key prefix |
 | `-listen` | `S3SITE_LISTEN` | `:8080` | HTTP listen address |
 | `-poll` | `S3SITE_POLL` | `30s` | Poll interval |
-| `-admin-host` | `S3SITE_ADMIN_HOST` | | Hostname for admin UI |
+| `-sites-config` | `S3SITE_SITES_CONFIG` | | Hosted-sites JSON config |
+| `-control-socket` | `S3SITE_CONTROL_SOCKET` | | Unix socket for local refresh control |
+| `-admin-host` | `S3SITE_ADMIN_HOST` | | Hostname for the insecure dev admin UI |
+| `-allow-insecure-admin` | `S3SITE_ALLOW_INSECURE_ADMIN` | `false` | Explicitly enable the insecure public admin UI/API |
 | `-storage` | `S3SITE_STORAGE` | `memory` | Storage mode: `memory` or `disk` |
 | `-data-dir` | `S3SITE_DATA_DIR` | `$TMPDIR/s3site-data` | Directory for disk storage |
 
-## CI/CD deployment
+## Refresh flow
+
+Typical CI flow in hosted mode:
 
 ```yaml
 deploy:
   script:
-    - hugo  # or jekyll, mkdocs, npm run build, etc.
+    - hugo
     - tar czf site.tar.gz -C public .
-    - aws s3 cp site.tar.gz s3://static-assets/sites/docs.example.com.tar.gz
+    - aws s3 cp site.tar.gz s3://static-assets/sites/rohanverma.net.tar.gz
+    - ssh oddship-web 's3site refresh -socket /run/s3site/control.sock rohanverma.net'
 ```
 
-The archive filename (minus `.tar.gz`) becomes the hostname. Files
-should be at the root of the archive (not wrapped in a directory).
+Rollback is simply rerunning CI from an older commit and uploading to the same key.
 
-## Packages
+## Admin UI
 
-### `pkg/s3watcher`
+The browser admin UI still exists for development, but it is intentionally gated behind `-allow-insecure-admin` because it has no authentication.
 
-An in-memory file manager that watches S3 objects for changes. Polls
-HEAD/ETag, keeps contents in memory, fires callbacks on change. Supports
-lazy loading and exposes an `fs.FS` interface.
-
-```go
-w, _ := s3watcher.New(s3watcher.Config{
-    S3:           s3Client,
-    PollInterval: 30 * time.Second,
-    Files: []s3watcher.FileEntry{
-        {Name: "instruments", Bucket: "b", Key: "data/instruments.csv"},
-    },
-})
-
-w.OnUpdate(func(e s3watcher.UpdateEvent) {
-    log.Printf("%s changed", e.Name)
-})
-
-go w.Start(ctx)
-data, etag := w.Get("instruments")
+```bash
+s3site \
+  -bucket static-assets \
+  -prefix sites/ \
+  -admin-host admin.example.com \
+  -allow-insecure-admin
 ```
 
-See [pkg/s3watcher/README.md](pkg/s3watcher/README.md) for full docs.
-
-### `pkg/s3site`
-
-The static site serving library. Discovers tar.gz archives in a bucket,
-extracts them into in-memory filesystems, and routes HTTP requests by
-Host header.
-
-```go
-sm := s3site.NewSiteManager(s3site.SiteManagerConfig{
-    S3:       s3Client,
-    Bucket:   "static-assets",
-    Prefix:   "sites/",
-    Interval: 30 * time.Second,
-})
-
-go sm.Start(ctx)
-
-handler := s3site.Handler(sm, logger, "admin.example.com")
-http.ListenAndServe(":8080", handler)
-```
-
-Admin API (on the admin host only):
-- `GET /api/sites` - JSON array of hostnames
-- `POST /api/upload` - multipart form: `hostname` + `file` (tar.gz)
-- `POST /api/delete` - JSON body: `{"hostname": "..."}`
-- `GET /health` - returns `ok`
-
-See [pkg/s3site/README.md](pkg/s3site/README.md) for full docs.
+Do **not** expose that mode on the public internet unless you add your own auth and network isolation.
 
 ## How it works
 
-1. Lists the S3 bucket for `*.tar.gz` files under the configured prefix
-2. Downloads each archive, extracts into an in-memory `fs.FS`
-3. Routes HTTP requests by `Host` header to the matching site
-4. Polls for changes - compares ETags, re-downloads on change
-5. Removes sites whose archives are deleted
+### Discovery mode
 
-In memory mode (default), all files are served from RAM. In disk mode
-(`-storage disk`), sites are extracted to a local directory and served
-from disk, keeping memory usage flat regardless of site count.
+1. List `*.tar.gz` objects under the configured prefix
+2. Map archive filename to hostname
+3. Compare ETags against current state
+4. Download and extract only changed archives
+5. Remove sites whose archives were deleted
+
+### Hosted mode
+
+1. Load a declared site registry from JSON
+2. Watch declared object keys only
+3. Compare ETags for declared keys only
+4. Download and activate updated archives
+5. Keep the previous on-disk version around for one generation in disk mode to reduce swap races
+
+## Storage modes
+
+In memory mode (default), all files are served from RAM.
+
+In disk mode (`-storage disk`), extracted sites are served from versioned directories on disk. `s3site` retains the previous on-disk version for one generation after an activation so a swap does not immediately delete the just-replaced tree.
+
+| Mode | Pros | Cons |
+|------|------|------|
+| `memory` | Fast serving, no disk I/O | Uses RAM for all site content |
+| `disk` | Minimal RAM usage | Disk I/O on every request, needs writable directory |
+
+## Safety improvements in hosted mode
+
+- only declared sites may go live
+- hostname validation is strict
+- tar path traversal is rejected
+- archive file count and total extracted bytes are bounded
+- refresh control is local-only via unix socket
+- server timeouts and `SIGTERM` handling are enabled
 
 ## Development
 
 Requires Docker for MinIO:
 
 ```bash
-# Start MinIO (from the simples3 repo or any docker-compose with MinIO)
-docker compose up -d
-aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://testbucket
-
-# Run all tests
+# Start MinIO
 export AWS_S3_ENDPOINT=http://127.0.0.1:9000
 export AWS_S3_ACCESS_KEY=minioadmin
 export AWS_S3_SECRET_KEY=minioadmin
 export AWS_S3_BUCKET=testbucket
-go test ./...
+
+go test ./... -short
 ```
+
+Run full integration tests with a live MinIO instance on `127.0.0.1:9000`.
+
+## Packages
+
+### `pkg/s3site`
+
+Static site serving library for both discovery mode and hosted mode.
+
+### `pkg/s3watcher`
+
+In-memory file watcher for arbitrary S3 objects. See [pkg/s3watcher/README.md](pkg/s3watcher/README.md).
 
 ## License
 
