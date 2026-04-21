@@ -5,34 +5,34 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rhnvrm/simples3"
 )
 
 // Handler returns an http.Handler that routes requests by Host header
-// to the appropriate site's in-memory filesystem.
+// to the appropriate site's filesystem.
 //
-// The adminHost (if non-empty) serves the admin UI and API on that hostname:
+// The adminHost (if non-empty) serves the admin UI/API on that hostname:
 //   - GET  /             - admin UI
 //   - GET  /api/sites    - JSON list of hosted sites
 //   - POST /api/upload   - upload a tar.gz (multipart: file + hostname)
 //   - POST /api/delete   - delete a site (JSON: {"hostname": "..."})
 //   - GET  /health       - health check
 //
-// All other hosts are routed to their matching site's in-memory FS.
+// All other hosts are routed to their matching site's FS.
 func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	adminHost = normalizeHost(adminHost)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Strip port from Host header.
-		host := r.Host
-		if i := strings.LastIndex(host, ":"); i != -1 {
-			host = host[:i]
+		host := normalizeHost(r.Host)
+		if host == "" {
+			http.Error(w, "missing host header", http.StatusBadRequest)
+			return
 		}
 
-		// Admin host gets the admin UI/API.
 		if adminHost != "" && host == adminHost {
 			handleAdmin(sm, logger, w, r)
 			return
@@ -62,17 +62,17 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 	switch r.URL.Path {
 	case "/api/sites":
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sm.Hostnames())
+		_ = json.NewEncoder(w).Encode(sm.Hostnames())
 
 	case "/api/upload":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		r.ParseMultipartForm(100 << 20) // 100MB max
-		hostname := r.FormValue("hostname")
-		if hostname == "" {
-			http.Error(w, "hostname is required", http.StatusBadRequest)
+		_ = r.ParseMultipartForm(100 << 20) // 100MB max
+		hostname, err := canonicalHostname(r.FormValue("hostname"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		file, _, err := r.FormFile("file")
@@ -82,7 +82,11 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 		}
 		defer file.Close()
 
-		key := sm.Prefix() + hostname + ".tar.gz"
+		key, err := sm.objectKeyForHost(hostname)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		_, err = sm.S3().FilePut(simples3.UploadInput{
 			Bucket:      sm.Bucket(),
 			ObjectKey:   key,
@@ -96,7 +100,7 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 		}
 		logger.Info("s3site admin: uploaded", "hostname", hostname, "key", key)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "hostname": hostname, "key": key})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "hostname": hostname, "key": key})
 
 	case "/api/delete":
 		if r.Method != http.MethodPost {
@@ -106,13 +110,22 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 		var req struct {
 			Hostname string `json:"hostname"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Hostname == "" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "hostname is required", http.StatusBadRequest)
 			return
 		}
+		hostname, err := canonicalHostname(req.Hostname)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		key := sm.Prefix() + req.Hostname + ".tar.gz"
-		err := sm.S3().FileDelete(simples3.DeleteInput{
+		key, err := sm.objectKeyForHost(hostname)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		err = sm.S3().FileDelete(simples3.DeleteInput{
 			Bucket:    sm.Bucket(),
 			ObjectKey: key,
 		})
@@ -121,9 +134,9 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 			http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		logger.Info("s3site admin: deleted", "hostname", req.Hostname, "key", key)
+		logger.Info("s3site admin: deleted", "hostname", hostname, "key", key)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "hostname": req.Hostname})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "hostname": hostname})
 
 	case "/health":
 		fmt.Fprint(w, "ok")
@@ -135,6 +148,17 @@ func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r 
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (sm *SiteManager) objectKeyForHost(hostname string) (string, error) {
+	if sm.HostedMode() {
+		site, ok := sm.declaredSites[hostname]
+		if !ok {
+			return "", fmt.Errorf("hostname is not declared: %s", hostname)
+		}
+		return site.Key, nil
+	}
+	return sm.Prefix() + hostname + ".tar.gz", nil
 }
 
 const adminHTML = `<!DOCTYPE html>

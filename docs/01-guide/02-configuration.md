@@ -19,51 +19,103 @@ s3site is configured via CLI flags. Every flag has a corresponding environment v
 | `-prefix` | `S3SITE_PREFIX` | | S3 key prefix for archives |
 | `-listen` | `S3SITE_LISTEN` | `:8080` | HTTP listen address |
 | `-poll` | `S3SITE_POLL` | `30s` | Poll interval for changes |
-| `-admin-host` | `S3SITE_ADMIN_HOST` | | Hostname for admin UI |
+| `-sites-config` | `S3SITE_SITES_CONFIG` | | Hosted-sites JSON config |
+| `-control-socket` | `S3SITE_CONTROL_SOCKET` | | Unix socket for local refresh control |
+| `-admin-host` | `S3SITE_ADMIN_HOST` | | Hostname for the insecure dev admin UI |
+| `-allow-insecure-admin` | `S3SITE_ALLOW_INSECURE_ADMIN` | `false` | Explicitly enable the insecure admin UI/API |
 | `-storage` | `S3SITE_STORAGE` | `memory` | Storage mode: `memory` or `disk` |
 | `-data-dir` | `S3SITE_DATA_DIR` | `$TMPDIR/s3site-data` | Directory for disk storage |
 
 Environment variables take effect only when the flag is not set. Flags always win.
 
-## Prefix
+## Discovery mode
 
-The prefix scopes s3site to a subdirectory in the bucket. This lets you share a bucket with other data:
+Without `-sites-config`, s3site runs in discovery mode.
 
-```
+The prefix scopes s3site to a subdirectory in the bucket:
+
+```txt
 s3://shared-bucket/
-  sites/                      <- s3site watches here with -prefix sites/
+  sites/
     foo.example.com.tar.gz
     bar.example.com.tar.gz
   other-data/
     ...
 ```
 
-Without a prefix, s3site watches the entire bucket for `.tar.gz` files.
+Each poll cycle:
+
+1. lists all `*.tar.gz` objects under the prefix
+2. compares ETags against current state
+3. downloads only changed archives
+4. removes sites whose archives were deleted
+
+## Hosted mode
+
+With `-sites-config`, s3site serves declared sites only and does not bucket-scan.
+
+Example config:
+
+```json
+{
+  "sites": [
+    { "hostname": "rohanverma.net" },
+    { "hostname": "oddship.net" }
+  ]
+}
+```
+
+When `key` is omitted, it defaults to:
+
+```txt
+<prefix><hostname>.tar.gz
+```
+
+Hosted mode is intended for running behind a declarative ingress layer such as Caddy/Nix. CI uploads to a stable key and then asks the local control socket to refresh the site.
+
+## Refresh control socket
+
+The control socket is local-only and supports:
+
+- `GET /health`
+- `POST /refresh`
+
+Typical usage:
+
+```bash
+s3site \
+  -bucket static-assets \
+  -prefix sites/ \
+  -sites-config /etc/s3site/sites.json \
+  -control-socket /run/s3site/control.sock \
+  -listen 127.0.0.1:9001
+```
+
+Refresh a site after uploading a new tarball:
+
+```bash
+s3site refresh -socket /run/s3site/control.sock rohanverma.net
+```
 
 ## Poll interval
 
-s3site polls S3 for changes at the configured interval. Each poll cycle:
+For hosted mode on cost-sensitive object stores, use a long interval and rely on local refresh for the fast path.
 
-1. Lists all `*.tar.gz` objects under the prefix
-2. Compares ETags against in-memory state
-3. Downloads only changed archives (new or updated ETag)
-4. Removes sites whose archives were deleted
-
-For most use cases, 15-30 seconds is reasonable. S3 LIST requests are cheap.
+For discovery mode, 15-30 seconds is reasonable for many setups.
 
 ## Admin host
 
-When `-admin-host` is set, requests to that hostname are routed to the admin UI instead of the site handler. This keeps admin endpoints off your hosted sites.
+The browser admin UI still exists, but it is intentionally gated behind `-allow-insecure-admin` because it has no authentication.
 
 ```bash
-s3site -bucket b -admin-host admin.example.com -listen :8080
+s3site -bucket b -admin-host admin.example.com -allow-insecure-admin -listen :8080
 ```
 
-See [Admin UI](../admin/) for details.
+Do not expose that mode publicly without your own auth and network controls.
 
 ## Storage mode
 
-By default, s3site keeps all site content in memory. This is fast but uses RAM proportional to the total uncompressed size of all sites.
+By default, s3site keeps all site content in memory.
 
 For systems where memory is constrained, use disk storage:
 
@@ -71,7 +123,7 @@ For systems where memory is constrained, use disk storage:
 s3site -bucket b -storage disk -data-dir /var/lib/s3site
 ```
 
-In disk mode, archives are extracted to `{data-dir}/{hostname}/` and served via `os.DirFS`. Each request reads from disk. When a site is updated, the new version is extracted to a temp directory first, then atomically swapped in.
+In disk mode, archives are extracted to versioned directories below the data directory and served via `os.DirFS`. s3site retains the previous version for one activation to reduce swap races.
 
 | Mode | Pros | Cons |
 |------|------|------|
