@@ -93,9 +93,19 @@ func runServe(args []string) {
 		}
 	}
 
-	s3Client := simples3.New(*region, *ak, *sk)
-	if *endpoint != "" {
-		s3Client.SetEndpoint(*endpoint)
+	var s3Client *simples3.S3
+	if *ak == "" && *sk == "" && *endpoint == "" {
+		c, err := simples3.NewUsingIAM(*region)
+		if err != nil {
+			logger.Error("failed to load credentials from EC2 IAM instance profile", "error", err)
+			os.Exit(1)
+		}
+		s3Client = c
+	} else {
+		s3Client = simples3.New(*region, *ak, *sk)
+		if *endpoint != "" {
+			s3Client.SetEndpoint(*endpoint)
+		}
 	}
 
 	var storageMode s3site.StorageMode
