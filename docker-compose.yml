@@ -1,0 +1,16 @@
+services:
+  s3site:
+    build: .
+    image: s3site:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    command:
+      - -bucket=${S3_BUCKET:-static-assets}
+      - -prefix=${S3_PREFIX:-sites/}
+      - -region=${S3_REGION:-us-east-1}
+      - -listen=:8080
+      - -poll=${S3SITE_POLL:-30s}
