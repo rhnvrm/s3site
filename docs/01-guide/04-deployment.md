@@ -95,23 +95,34 @@ Use dynamic ports (`port "http" {}`) so Nomad picks a free port. The service reg
 
 ## Docker
 
-```dockerfile
-FROM golang:1.25 AS build
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=0 go build -o /s3site ./cmd/s3site/
+Container images are published to GitHub Container Registry on version tags:
 
-FROM scratch
-COPY --from=build /s3site /s3site
-ENTRYPOINT ["/s3site"]
-```
+- `ghcr.io/rhnvrm/s3site:v0.1.0`
+- `ghcr.io/rhnvrm/s3site:latest`
 
 ```bash
-docker run -p 8080:8080 s3site \
+docker run -p 8080:80 ghcr.io/rhnvrm/s3site:v0.1.0 \
   -bucket my-bucket \
-  -prefix sites/ \
-  -listen :8080
+  -prefix sites/
 ```
+
+The published image defaults to `-listen :80`, which fits ALB and Nomad setups that route HTTP to port 80. Override `-listen` if you want a different internal port.
+
+The repository also includes a `Dockerfile` if you want to build it yourself.
+
+## Release flow
+
+Create and push a semver tag to publish both binary assets and the container image:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The GitHub Actions release workflow will:
+- run tests
+- publish tar.gz binaries on GitHub Releases
+- publish a multi-arch image to GHCR
 
 ## systemd
 

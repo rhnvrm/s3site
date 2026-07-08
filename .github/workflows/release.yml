@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      AWS_S3_ENDPOINT: http://127.0.0.1:9000
+      AWS_S3_ACCESS_KEY: minioadmin
+      AWS_S3_SECRET_KEY: minioadmin
+      AWS_S3_REGION: us-east-1
+      AWS_S3_BUCKET: testbucket
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs minio
+          exit 1
+
+      - name: Create test bucket
+        run: |
+          docker run --rm --network host --entrypoint /bin/sh minio/mc -c '
+            mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null &&
+            mc mb --ignore-existing local/testbucket >/dev/null
+          '
+
+      - name: Run tests
+        run: go test ./...
+
+  release-binaries:
+    name: Build release binaries
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p dist
+          BIN_DIR="dist/s3site_${GOOS}_${GOARCH}"
+          mkdir -p "$BIN_DIR"
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+            -o "$BIN_DIR/s3site" ./cmd/s3site
+          tar -C dist -czf "dist/s3site_${VERSION#v}_${GOOS}_${GOARCH}.tar.gz" "s3site_${GOOS}_${GOARCH}"
+          sha256sum "dist/s3site_${VERSION#v}_${GOOS}_${GOARCH}.tar.gz" > "dist/s3site_${VERSION#v}_${GOOS}_${GOARCH}.tar.gz.sha256"
+          rm -rf "$BIN_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  publish-release:
+    name: Publish GitHub release
+    needs: release-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+
+  docker:
+    name: Publish container image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set build date
+        id: date
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.date.outputs.value }}

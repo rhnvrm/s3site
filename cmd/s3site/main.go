@@ -28,6 +28,12 @@ import (
 	"github.com/rhnvrm/simples3"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -49,6 +55,7 @@ func main() {
 func runServe(args []string) {
 	fs := flag.NewFlagSet("s3site", flag.ExitOnError)
 	var (
+		showVersion        = fs.Bool("version", false, "Print build version and exit")
 		bucket             = fs.String("bucket", envOr("AWS_S3_BUCKET", ""), "S3 bucket name")
 		region             = fs.String("region", envOr("AWS_S3_REGION", "us-east-1"), "AWS region")
 		ak                 = fs.String("access-key", envOr("AWS_S3_ACCESS_KEY", ""), "AWS access key")
@@ -65,6 +72,11 @@ func runServe(args []string) {
 		controlSocket      = fs.String("control-socket", envOr("S3SITE_CONTROL_SOCKET", ""), "Unix socket for local control operations")
 	)
 	_ = fs.Parse(args)
+
+	if *showVersion {
+		fmt.Printf("s3site %s\ncommit: %s\nbuilt: %s\n", version, commit, date)
+		return
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,

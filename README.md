@@ -32,6 +32,10 @@ inputs.s3site.url = "github:rhnvrm/s3site";
 inputs.s3site.packages.${system}.default
 ```
 
+Versioned release assets are published on GitHub Releases for tags like
+`v0.1.0`. Container images are published to `ghcr.io/rhnvrm/s3site`.
+The container image defaults to `-listen :80` for Nomad/load-balancer deployments.
+
 ## Quick start
 
 ### Discovery mode
@@ -43,6 +47,12 @@ s3site \
   -region us-east-1 \
   -listen :8080 \
   -poll 30s
+```
+
+Check the build metadata:
+
+```bash
+s3site -version
 ```
 
 Objects under the prefix are mapped by filename:
@@ -198,6 +208,23 @@ In disk mode (`-storage disk`), extracted sites are served from versioned direct
 - archive file count and total extracted bytes are bounded
 - refresh control is local-only via unix socket
 - server timeouts and `SIGTERM` handling are enabled
+
+## Releasing
+
+Push a version tag to publish both release binaries and a multi-arch container image:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This publishes:
+- GitHub release assets for Linux and macOS
+- Container images to `ghcr.io/rhnvrm/s3site:v0.1.0`
+- Moving tags such as `ghcr.io/rhnvrm/s3site:latest`
+
+The published container image listens on port 80 by default. Override with
+`-listen` or `S3SITE_LISTEN` if your runtime expects a different port.
 
 ## Development
 
