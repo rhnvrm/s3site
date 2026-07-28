@@ -71,7 +71,17 @@ Declare the sites that are allowed to go live:
 {
   "sites": [
     { "hostname": "rohanverma.net" },
-    { "hostname": "oddship.net" }
+    { "hostname": "oddship.net" },
+    {
+      "hostname": "reading-list.oddship.net",
+      "headers": [
+        {
+          "path": "/feed.xml",
+          "name": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
   ]
 }
 ```
@@ -94,11 +104,36 @@ When `key` is omitted, `s3site` derives it as:
 <prefix><hostname>.tar.gz
 ```
 
+Hosted sites may also declare response headers for static file paths. Use
+`path` for an exact request path or `pathPrefix` for all paths below a prefix:
+
+```json
+{
+  "hostname": "reading-list.oddship.net",
+  "headers": [
+    {
+      "path": "/feed.xml",
+      "name": "Access-Control-Allow-Origin",
+      "value": "*"
+    },
+    {
+      "pathPrefix": "/feeds/",
+      "name": "Access-Control-Allow-Origin",
+      "value": "*"
+    }
+  ]
+}
+```
+
+Configured headers are only applied to matching static-site responses for the
+declared host. They do not apply to the admin host or unknown hosts.
+
 So the config above watches:
 
 ```txt
 sites/rohanverma.net.tar.gz
 sites/oddship.net.tar.gz
+sites/reading-list.oddship.net.tar.gz
 ```
 
 Refresh one or more declared sites after CI uploads a new tarball:

@@ -60,7 +60,17 @@ Example config:
 {
   "sites": [
     { "hostname": "rohanverma.net" },
-    { "hostname": "oddship.net" }
+    { "hostname": "oddship.net" },
+    {
+      "hostname": "reading-list.oddship.net",
+      "headers": [
+        {
+          "path": "/feed.xml",
+          "name": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    }
   ]
 }
 ```
@@ -72,6 +82,34 @@ When `key` is omitted, it defaults to:
 ```
 
 Hosted mode is intended for running behind a declarative ingress layer such as Caddy/Nix. CI uploads to a stable key and then asks the local control socket to refresh the site.
+
+### Hosted response headers
+
+Each hosted site may declare optional response header rules for matching static
+paths. Use `path` for an exact request path or `pathPrefix` for all paths below
+a prefix:
+
+```json
+{
+  "hostname": "reading-list.oddship.net",
+  "headers": [
+    {
+      "path": "/feed.xml",
+      "name": "Access-Control-Allow-Origin",
+      "value": "*"
+    },
+    {
+      "pathPrefix": "/feeds/",
+      "name": "Access-Control-Allow-Origin",
+      "value": "*"
+    }
+  ]
+}
+```
+
+Headers are applied only after the request host matches a declared static site,
+before the file server serves content. They do not apply to the admin host or
+unknown hosts.
 
 ## Refresh control socket
 

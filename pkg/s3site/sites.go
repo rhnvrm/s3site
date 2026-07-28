@@ -176,7 +176,12 @@ func NewSiteManager(cfg SiteManagerConfig) *SiteManager {
 			configErr = errors.Join(configErr, fmt.Errorf("s3site: duplicate hosted site: %s", hostname))
 			continue
 		}
-		declaredSites[hostname] = HostedSite{Hostname: hostname, Key: key}
+		headers, err := normalizeHeaderRules(site.Headers)
+		if err != nil {
+			configErr = errors.Join(configErr, fmt.Errorf("s3site: hosted site %s: %w", hostname, err))
+			continue
+		}
+		declaredSites[hostname] = HostedSite{Hostname: hostname, Key: key, Headers: headers}
 	}
 	if cfg.S3 == nil {
 		configErr = errors.Join(configErr, fmt.Errorf("s3site: S3 client is required"))

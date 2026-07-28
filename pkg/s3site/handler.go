@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/rhnvrm/simples3"
 )
@@ -45,8 +46,26 @@ func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handle
 			return
 		}
 
+		sm.applyResponseHeaders(w, host, r.URL.Path)
 		http.FileServerFS(siteFS).ServeHTTP(w, r)
 	})
+}
+
+func (sm *SiteManager) applyResponseHeaders(w http.ResponseWriter, hostname, requestPath string) {
+	site, ok := sm.declaredSites[hostname]
+	if !ok {
+		return
+	}
+
+	for _, rule := range site.Headers {
+		if rule.Path != "" && requestPath == rule.Path {
+			w.Header().Set(rule.Name, rule.Value)
+			continue
+		}
+		if rule.PathPrefix != "" && strings.HasPrefix(requestPath, rule.PathPrefix) {
+			w.Header().Set(rule.Name, rule.Value)
+		}
+	}
 }
 
 func handleAdmin(sm *SiteManager, logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
