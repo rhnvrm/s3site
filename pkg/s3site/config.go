@@ -4,14 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 )
 
 // HostedSite declares one hosted site and its source object key.
 type HostedSite struct {
-	Hostname string `json:"hostname"`
-	Key      string `json:"key,omitempty"`
+	Hostname string       `json:"hostname"`
+	Key      string       `json:"key,omitempty"`
+	Headers  []HeaderRule `json:"headers,omitempty"`
+}
+
+// HeaderRule declares one response header to set on matching hosted-site paths.
+// Exactly one of Path or PathPrefix must be set.
+type HeaderRule struct {
+	Path       string `json:"path,omitempty"`
+	PathPrefix string `json:"pathPrefix,omitempty"`
+	Name       string `json:"name"`
+	Value      string `json:"value"`
 }
 
 type hostedSitesFile struct {
@@ -50,13 +61,75 @@ func LoadHostedSites(path, prefix string) ([]HostedSite, error) {
 		if key == "" {
 			key = prefix + hostname + ".tar.gz"
 		}
+		headers, err := normalizeHeaderRules(site.Headers)
+		if err != nil {
+			return nil, fmt.Errorf("hosted site %s: %w", hostname, err)
+		}
 		normalized = append(normalized, HostedSite{
 			Hostname: hostname,
 			Key:      key,
+			Headers:  headers,
 		})
 	}
 
 	return normalized, nil
+}
+
+func normalizeHeaderRules(rules []HeaderRule) ([]HeaderRule, error) {
+	if len(rules) == 0 {
+		return nil, nil
+	}
+
+	normalized := make([]HeaderRule, 0, len(rules))
+	for i, rule := range rules {
+		path := strings.TrimSpace(rule.Path)
+		pathPrefix := strings.TrimSpace(rule.PathPrefix)
+		name := http.CanonicalHeaderKey(strings.TrimSpace(rule.Name))
+		value := strings.TrimSpace(rule.Value)
+
+		switch {
+		case path == "" && pathPrefix == "":
+			return nil, fmt.Errorf("header rule %d: path or pathPrefix is required", i)
+		case path != "" && pathPrefix != "":
+			return nil, fmt.Errorf("header rule %d: only one of path or pathPrefix may be set", i)
+		case path != "" && !strings.HasPrefix(path, "/"):
+			return nil, fmt.Errorf("header rule %d: path must start with /", i)
+		case pathPrefix != "" && !strings.HasPrefix(pathPrefix, "/"):
+			return nil, fmt.Errorf("header rule %d: pathPrefix must start with /", i)
+		}
+
+		if name == "" {
+			return nil, fmt.Errorf("header rule %d: name is required", i)
+		}
+		if !validHeaderName(name) {
+			return nil, fmt.Errorf("header rule %d: invalid header name %q", i, rule.Name)
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("header rule %d: header value contains a newline", i)
+		}
+
+		normalized = append(normalized, HeaderRule{
+			Path:       path,
+			PathPrefix: pathPrefix,
+			Name:       name,
+			Value:      value,
+		})
+	}
+	return normalized, nil
+}
+
+func validHeaderName(name string) bool {
+	for _, ch := range name {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case strings.ContainsRune("!#$%&'*+-.^_`|~", ch):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func canonicalHostname(host string) (string, error) {

@@ -15,6 +15,8 @@ import (
 	"github.com/rhnvrm/simples3"
 )
 
+const readingListHost = "reading-list.oddship.net"
+
 func TestLoadHostedSites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sites.json")
 	if err := os.WriteFile(path, []byte(`{"sites":[{"hostname":"Example.COM"},{"hostname":"docs.example.com","key":"custom/docs.tar.gz"}]}`), 0644); err != nil {
@@ -33,6 +35,33 @@ func TestLoadHostedSites(t *testing.T) {
 	}
 	if sites[1].Hostname != "docs.example.com" || sites[1].Key != "custom/docs.tar.gz" {
 		t.Fatalf("unexpected second site: %+v", sites[1])
+	}
+	if len(sites[0].Headers) != 0 || len(sites[1].Headers) != 0 {
+		t.Fatalf("expected configs without headers to remain compatible, got %+v", sites)
+	}
+}
+
+func TestLoadHostedSitesHeaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sites.json")
+	if err := os.WriteFile(path, []byte(`{"sites":[{"hostname":"Example.COM","headers":[{"path":"/feed.xml","name":"access-control-allow-origin","value":"*"},{"pathPrefix":"/feeds/","name":"Cache-Control","value":"public, max-age=300"}]}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sites, err := LoadHostedSites(path, "sites/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sites) != 1 {
+		t.Fatalf("expected 1 site, got %d", len(sites))
+	}
+	if len(sites[0].Headers) != 2 {
+		t.Fatalf("expected 2 headers, got %+v", sites[0].Headers)
+	}
+	if got := sites[0].Headers[0]; got.Path != "/feed.xml" || got.Name != "Access-Control-Allow-Origin" || got.Value != "*" {
+		t.Fatalf("unexpected exact header rule: %+v", got)
+	}
+	if got := sites[0].Headers[1]; got.PathPrefix != "/feeds/" || got.Name != "Cache-Control" || got.Value != "public, max-age=300" {
+		t.Fatalf("unexpected prefix header rule: %+v", got)
 	}
 }
 
@@ -75,6 +104,127 @@ func TestHandlerNormalizesHostHeader(t *testing.T) {
 	if body := w.Body.String(); body != "ok" {
 		t.Fatalf("unexpected body %q", body)
 	}
+}
+
+func TestHandlerAppliesExactHostedHeader(t *testing.T) {
+	handler := newHostedTestHandler(t, readingListHost, []HeaderRule{{
+		Path:  "/feed.xml",
+		Name:  "Access-Control-Allow-Origin",
+		Value: "*",
+	}}, map[string]string{
+		"feed.xml": "<rss></rss>",
+	}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/feed.xml", nil)
+	req.Host = readingListHost
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected CORS header, got %q", got)
+	}
+}
+
+func TestHandlerDoesNotApplyHostedHeaderToUnrelatedPath(t *testing.T) {
+	handler := newHostedTestHandler(t, readingListHost, []HeaderRule{{
+		Path:  "/feed.xml",
+		Name:  "Access-Control-Allow-Origin",
+		Value: "*",
+	}}, map[string]string{
+		"about.html": "ok",
+	}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/about.html", nil)
+	req.Host = readingListHost
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no CORS header, got %q", got)
+	}
+}
+
+func TestHandlerAppliesMultipleHostedHeaderRules(t *testing.T) {
+	handler := newHostedTestHandler(t, readingListHost, []HeaderRule{
+		{Path: "/feed.xml", Name: "Access-Control-Allow-Origin", Value: "*"},
+		{Path: "/feed.xml", Name: "Access-Control-Allow-Methods", Value: "GET"},
+		{PathPrefix: "/feeds/", Name: "Cache-Control", Value: "public, max-age=300"},
+	}, map[string]string{
+		"feed.xml":       "<rss></rss>",
+		"feeds/atom.xml": "<feed></feed>",
+	}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/feed.xml", nil)
+	req.Host = readingListHost
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected CORS origin header, got %q", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Methods"); got != "GET" {
+		t.Fatalf("expected CORS methods header, got %q", got)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/feeds/atom.xml", nil)
+	req.Host = readingListHost
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Fatalf("expected cache header, got %q", got)
+	}
+}
+
+func TestHandlerDoesNotApplyHostedHeadersToAdminHost(t *testing.T) {
+	const adminHost = "admin.example.com"
+	handler := newHostedTestHandler(t, adminHost, []HeaderRule{{
+		Path:  "/",
+		Name:  "X-Feed-Header",
+		Value: "site",
+	}}, map[string]string{
+		"index.html": "ok",
+	}, adminHost)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = adminHost
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("X-Feed-Header"); got != "" {
+		t.Fatalf("expected no hosted header on admin host, got %q", got)
+	}
+}
+
+func newHostedTestHandler(t *testing.T, hostname string, headers []HeaderRule, files map[string]string, adminHost string) http.Handler {
+	t.Helper()
+	sm := NewSiteManager(SiteManagerConfig{
+		S3:     setupDummyS3(),
+		Bucket: "bucket",
+		HostedSites: []HostedSite{{
+			Hostname: hostname,
+			Headers:  headers,
+		}},
+	})
+	if err := sm.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	mfs := newMemFS()
+	for name, content := range files {
+		mfs.Add(name, []byte(content))
+	}
+	sm.sites[hostname] = &site{hostname: hostname, fs: mfs}
+	return Handler(sm, nil, adminHost)
 }
 
 func TestNewSiteManagerValidation(t *testing.T) {
