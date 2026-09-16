@@ -2,9 +2,12 @@ package s3site
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/rhnvrm/simples3"
@@ -47,8 +50,26 @@ func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handle
 		}
 
 		sm.applyResponseHeaders(w, host, r.URL.Path)
-		http.FileServerFS(siteFS).ServeHTTP(w, r)
+		serveSite(siteFS, w, r)
 	})
+}
+
+func serveSite(siteFS fs.FS, w http.ResponseWriter, r *http.Request) {
+	requestPath := path.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+	if requestPath != "." {
+		_, requestErr := fs.Stat(siteFS, requestPath)
+		if errors.Is(requestErr, fs.ErrNotExist) {
+			if _, fallbackErr := fs.Stat(siteFS, "404.html"); fallbackErr == nil {
+				fallbackRequest := r.Clone(r.Context())
+				fallbackRequest.URL.Path = "/404.html"
+				w.WriteHeader(http.StatusNotFound)
+				http.FileServerFS(siteFS).ServeHTTP(w, fallbackRequest)
+				return
+			}
+		}
+	}
+
+	http.FileServerFS(siteFS).ServeHTTP(w, r)
 }
 
 func (sm *SiteManager) applyResponseHeaders(w http.ResponseWriter, hostname, requestPath string) {

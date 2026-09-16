@@ -106,6 +106,26 @@ func TestHandlerNormalizesHostHeader(t *testing.T) {
 	}
 }
 
+func TestHandlerServesSite404ForMissingPath(t *testing.T) {
+	handler := newHostedTestHandler(t, "example.com", nil, map[string]string{
+		"index.html": "home",
+		"404.html":   "custom not found",
+	}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
+	req.Host = "example.com"
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+	if body := w.Body.String(); body != "custom not found" {
+		t.Fatalf("expected custom 404 body, got %q", body)
+	}
+}
+
 func TestHandlerAppliesExactHostedHeader(t *testing.T) {
 	handler := newHostedTestHandler(t, readingListHost, []HeaderRule{{
 		Path:  "/feed.xml",
