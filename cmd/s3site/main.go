@@ -55,6 +55,7 @@ func main() {
 func runServe(args []string) {
 	fs := flag.NewFlagSet("s3site", flag.ExitOnError)
 	var (
+		oidcConfig         = fs.String("oidc-config", envOr("S3SITE_OIDC_CONFIG", ""), "Path to OIDC JSON configuration")
 		showVersion        = fs.Bool("version", false, "Print build version and exit")
 		bucket             = fs.String("bucket", envOr("AWS_S3_BUCKET", ""), "S3 bucket name")
 		region             = fs.String("region", envOr("AWS_S3_REGION", "us-east-1"), "AWS region")
@@ -191,7 +192,24 @@ func runServe(args []string) {
 		}()
 	}
 
-	handler := s3site.Handler(sm, logger, *admHost)
+	var auth *s3site.OIDCAuth
+	if *oidcConfig != "" {
+		data, err := os.ReadFile(*oidcConfig)
+		var cfg s3site.OIDCConfig
+		if err == nil {
+			err = json.Unmarshal(data, &cfg)
+		}
+		if err == nil {
+			discoveryCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			auth, err = s3site.NewOIDCAuth(discoveryCtx, cfg)
+			cancel()
+		}
+		if err != nil {
+			logger.Error("OIDC configuration failed", "error", err)
+			os.Exit(1)
+		}
+	}
+	handler := s3site.HandlerWithOIDC(sm, logger, *admHost, auth)
 	srv := &http.Server{
 		Addr:              *listen,
 		Handler:           handler,

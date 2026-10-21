@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "auth": "oidc",
+  "rules": [
+    { "path": "/", "public": true },
+    { "path": "/index.html", "public": true },
+    {
+      "pathPrefix": "/private",
+      "allow": { "emails": ["alice@example.com"] }
+    }
+  ]
+}

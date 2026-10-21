@@ -290,3 +290,14 @@ In-memory file watcher for arbitrary S3 objects. See [pkg/s3watcher/README.md](p
 ## License
 
 BSD-2-Clause
+
+## Site access control
+
+Bundle `.s3site/access.json` in a site archive to restrict visitors through OIDC
+(including Zitadel). Policies support whole-site allowlists or ordered path rules
+with public pages, verified emails, subject IDs, and roles. Unmatched rule paths
+are denied. Configure the provider separately with `-oidc-config` or
+`S3SITE_OIDC_CONFIG`; sites without a policy remain public.
+
+See the [policy and Zitadel guide](docs/access-control.md) and the
+[runnable local login demo](examples/oidc/README.md).

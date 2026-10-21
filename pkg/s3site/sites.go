@@ -41,6 +41,7 @@ const (
 
 // site holds the extracted contents of a single tar.gz site archive.
 type site struct {
+	policy        *AccessPolicy
 	hostname      string
 	key           string
 	etag          string
@@ -225,6 +226,12 @@ func (sm *SiteManager) GetSite(hostname string) fs.FS {
 		return nil
 	}
 	return s.fs
+}
+
+func (sm *SiteManager) getSiteSnapshot(host string) *site {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.sites[host]
 }
 
 // Hostnames returns all currently loaded hostnames.
@@ -626,11 +633,7 @@ func (sm *SiteManager) extractToMemory(hostname string, tr *tar.Reader) (*site, 
 		mfs.Add(name, data)
 	}
 
-	return &site{
-		hostname: hostname,
-		fs:       mfs,
-		files:    mfs.Len(),
-	}, nil
+	return prepareSite(&site{hostname: hostname, fs: mfs, files: mfs.Len()})
 }
 
 func (sm *SiteManager) extractToDisk(hostname string, tr *tar.Reader) (*site, error) {
@@ -708,12 +711,7 @@ func (sm *SiteManager) extractToDisk(hostname string, tr *tar.Reader) (*site, er
 		}
 	}
 
-	return &site{
-		hostname: hostname,
-		fs:       os.DirFS(tmpDir),
-		files:    count,
-		dir:      tmpDir,
-	}, nil
+	return prepareSite(&site{hostname: hostname, fs: os.DirFS(tmpDir), files: count, dir: tmpDir})
 }
 
 // cleanTarPath normalizes and validates a tar entry name.

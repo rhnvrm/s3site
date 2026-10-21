@@ -26,6 +26,12 @@ import (
 //
 // All other hosts are routed to their matching site's FS.
 func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handler {
+	return HandlerWithOIDC(sm, logger, adminHost, nil)
+}
+
+// HandlerWithOIDC enforces whole-site and path-based OIDC policies. Protected paths fail
+// closed when auth or a registered callback URL is unavailable.
+func HandlerWithOIDC(sm *SiteManager, logger *slog.Logger, adminHost string, auth *OIDCAuth) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -43,15 +49,37 @@ func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handle
 			return
 		}
 
-		siteFS := sm.GetSite(host)
-		if siteFS == nil {
+		snapshot := sm.getSiteSnapshot(host)
+		if snapshot == nil {
 			logger.Warn("s3site: unknown host", "host", host, "path", r.URL.Path)
 			http.Error(w, fmt.Sprintf("site not found: %s", host), http.StatusNotFound)
 			return
 		}
 
 		sm.applyResponseHeaders(w, host, r.URL.Path)
-		serveSite(siteFS, w, r)
+		if snapshot.policy != nil {
+			if auth == nil && !snapshot.policy.decision(snapshot.fs, r.URL.Path).public() {
+				w.Header().Set("Cache-Control", "private, no-store")
+				http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if auth != nil && !auth.authorize(w, r, host, snapshot) {
+				return
+			}
+		}
+		if snapshot.policy != nil {
+			name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+			if name == "" {
+				name = "."
+			}
+			if info, err := fs.Stat(snapshot.fs, name); err == nil && info.IsDir() {
+				if index, err := fs.Stat(snapshot.fs, path.Join(name, "index.html")); err != nil || index.IsDir() {
+					http.NotFound(w, r)
+					return
+				}
+			}
+		}
+		serveSite(snapshot.fs, w, r)
 	})
 }
 
