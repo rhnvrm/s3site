@@ -2,9 +2,13 @@ package s3site
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/rhnvrm/simples3"
@@ -47,8 +51,32 @@ func Handler(sm *SiteManager, logger *slog.Logger, adminHost string) http.Handle
 		}
 
 		sm.applyResponseHeaders(w, host, r.URL.Path)
-		http.FileServerFS(siteFS).ServeHTTP(w, r)
+		serveSite(siteFS, w, r)
 	})
+}
+
+func serveSite(siteFS fs.FS, w http.ResponseWriter, r *http.Request) {
+	requestPath := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if requestPath == "" {
+		requestPath = "."
+	}
+	if _, requestErr := fs.Stat(siteFS, requestPath); errors.Is(requestErr, fs.ErrNotExist) {
+		if body, fallbackErr := fs.ReadFile(siteFS, "404.html"); fallbackErr == nil {
+			// Serve the error representation directly: range and conditional request
+			// headers apply to the requested resource, not to this fallback page.
+			if w.Header().Get("Content-Type") == "" {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(http.StatusNotFound)
+			if r.Method != http.MethodHead {
+				_, _ = w.Write(body)
+			}
+			return
+		}
+	}
+
+	http.FileServerFS(siteFS).ServeHTTP(w, r)
 }
 
 func (sm *SiteManager) applyResponseHeaders(w http.ResponseWriter, hostname, requestPath string) {
