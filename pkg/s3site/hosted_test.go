@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,22 +109,94 @@ func TestHandlerNormalizesHostHeader(t *testing.T) {
 }
 
 func TestHandlerServesSite404ForMissingPath(t *testing.T) {
-	handler := newHostedTestHandler(t, "example.com", nil, map[string]string{
-		"index.html": "home",
-		"404.html":   "custom not found",
-	}, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
-	req.Host = "example.com"
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
+	const body = "<!doctype html><h1>Custom not found</h1>"
+	for _, storage := range []StorageMode{StorageMemory, StorageDisk} {
+		t.Run(fmt.Sprint(storage), func(t *testing.T) {
+			sm := NewSiteManager(SiteManagerConfig{Storage: storage, DataDir: t.TempDir()})
+			files := map[string]string{"index.html": "home", "404.html": body, "docs/index.html": "docs"}
+			var siteFS fs.FS
+			if storage == StorageDisk {
+				site, err := sm.extractToDisk("example.com", newTarReader(t, files))
+				if err != nil {
+					t.Fatal(err)
+				}
+				siteFS = site.fs
+			} else {
+				mfs := newMemFS()
+				for name, content := range files {
+					mfs.Add(name, []byte(content))
+				}
+				siteFS = mfs
+			}
+			sm.sites["example.com"] = &site{hostname: "example.com", fs: siteFS}
+			handler := Handler(sm, nil, "")
+			for _, tc := range []struct {
+				name, method, target, host, header, value string
+				status                                    int
+				body                                      string
+			}{
+				{name: "missing", target: "/missing", status: 404, body: body},
+				{name: "nested", target: "/docs/missing", status: 404, body: body},
+				{name: "clean path", target: "//docs/../missing", status: 404, body: body},
+				{name: "head", method: "HEAD", target: "/missing", status: 404},
+				{name: "range", target: "/missing", header: "Range", value: "bytes=0-3", status: 404, body: body},
+				{name: "conditional", target: "/missing", header: "If-None-Match", value: "*", status: 404, body: body},
+				{name: "home", target: "/", status: 200, body: "home"},
+				{name: "direct fallback", target: "/404.html", status: 200, body: body},
+				{name: "directory", target: "/docs/", status: 200, body: "docs"},
+				{name: "unknown host", target: "/missing", host: "unknown.com", status: 404, body: "site not found: unknown.com\n"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					method := tc.method
+					if method == "" {
+						method = "GET"
+					}
+					req := httptest.NewRequest(method, "http://example.com"+tc.target, nil)
+					if tc.host != "" {
+						req.Host = tc.host
+					}
+					if tc.header != "" {
+						req.Header.Set(tc.header, tc.value)
+					}
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					defer resp.Body.Close()
+					if resp.StatusCode != tc.status {
+						t.Fatalf("status = %d, want %d", resp.StatusCode, tc.status)
+					}
+					if got := w.Body.String(); got != tc.body {
+						t.Fatalf("body = %q, want %q", got, tc.body)
+					}
+					if tc.status == 404 && tc.host == "" {
+						if got := resp.Header.Get("Content-Type"); got != "text/html; charset=utf-8" {
+							t.Errorf("Content-Type = %q", got)
+						}
+						if got := resp.ContentLength; got != int64(len(body)) {
+							t.Errorf("Content-Length = %d, want %d", got, len(body))
+						}
+						if got := resp.Header.Get("Content-Range"); got != "" {
+							t.Errorf("unexpected Content-Range %q", got)
+						}
+					}
+				})
+			}
+		})
 	}
-	if body := w.Body.String(); body != "custom not found" {
-		t.Fatalf("expected custom 404 body, got %q", body)
+}
+
+func TestHandlerMissingFallback(t *testing.T) {
+	for _, files := range []map[string]string{
+		{"index.html": "home"},
+		{"index.html": "home", "404.html/index.html": "a directory is not an error page"},
+	} {
+		handler := newHostedTestHandler(t, "example.com", nil, files, "")
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/missing", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound || w.Body.String() != "404 page not found\n" {
+			t.Fatalf("expected standard 404, got %d %q", w.Code, w.Body.String())
+		}
 	}
 }
 
