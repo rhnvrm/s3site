@@ -1,0 +1,44 @@
+name: Test
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      AWS_S3_ENDPOINT: http://127.0.0.1:19000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Start local S3 service
+        run: |
+          docker compose -p s3site-test -f examples/oidc/compose.yml up -d
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:19000/testbucket >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker compose -p s3site-test -f examples/oidc/compose.yml logs
+          exit 1
+      - name: Run unit and integration tests
+        run: go test ./... -race -count=1
+      - name: Static checks
+        run: go vet ./...
+      - name: Stop local S3 service
+        if: always()
+        run: docker compose -p s3site-test -f examples/oidc/compose.yml down
+  zitadel:
+    name: Zitadel integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Test real Zitadel login and access policies
+        run: ./examples/oidc/test-zitadel.sh

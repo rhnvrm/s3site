@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "s3site access policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "auth"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "auth": {
+      "const": "oidc"
+    },
+    "allow": {
+      "$ref": "#/$defs/allowlist"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "not": {
+    "required": [
+      "allow",
+      "rules"
+    ]
+  },
+  "$defs": {
+    "allowlist": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emails": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "pathPrefix": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "allow": {
+          "$ref": "#/$defs/allowlist"
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "path"
+              ],
+              "not": {
+                "required": [
+                  "pathPrefix"
+                ]
+              }
+            },
+            {
+              "required": [
+                "pathPrefix"
+              ],
+              "not": {
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "required": [
+                "public"
+              ],
+              "properties": {
+                "public": {
+                  "const": true
+                }
+              },
+              "not": {
+                "required": [
+                  "allow"
+                ]
+              }
+            },
+            {
+              "required": [
+                "allow"
+              ],
+              "properties": {
+                "public": {
+                  "const": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

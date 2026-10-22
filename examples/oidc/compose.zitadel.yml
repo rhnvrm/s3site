@@ -1,0 +1,69 @@
+# Local integration fixture only. All data and bootstrap credentials are disposable.
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: LocalDatabasePassword1!
+      POSTGRES_DB: zitadel
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U zitadel -d zitadel"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v4.19.5
+    user: "0"
+    command: [start-from-init, --masterkey, "01234567890123456789012345678901", --tlsMode, disabled]
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ZITADEL_EXTERNALDOMAIN: 127.0.0.1
+      ZITADEL_EXTERNALPORT: 18080
+      ZITADEL_EXTERNALSECURE: false
+      ZITADEL_TLS_ENABLED: false
+      ZITADEL_DATABASE_POSTGRES_DSN: postgres://zitadel:LocalDatabasePassword1!@postgres:5432/zitadel?sslmode=disable
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: LocalAdminPassword1!
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: false
+      ZITADEL_FIRSTINSTANCE_PATPATH: /bootstrap/admin.pat
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: integration-admin
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Integration admin
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2030-01-01T00:00:00Z"
+      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /bootstrap/login-client.pat
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: integration-login
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Integration login client
+      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2030-01-01T00:00:00Z"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://127.0.0.1:13000/ui/v2/login/
+      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://127.0.0.1:13000/ui/v2/login/login?authRequest=
+      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://127.0.0.1:13000/ui/v2/login/logout?post_logout_redirect=
+    healthcheck:
+      test: [CMD, /app/zitadel, ready]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+    volumes:
+      - zitadel-bootstrap:/bootstrap
+  zitadel-login:
+    image: ghcr.io/zitadel/zitadel-login:v4.19.5
+    user: "0"
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      zitadel:
+        condition: service_healthy
+    environment:
+      ZITADEL_API_URL: http://zitadel:8080
+      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
+      ZITADEL_SERVICE_USER_TOKEN_FILE: /bootstrap/login-client.pat
+      ZITADEL_SESSION_COOKIE_SECRET: "LocalSessionCookieSecret32Characters"
+      CUSTOM_REQUEST_HEADERS: "Host:127.0.0.1:18080,X-Forwarded-Proto:http"
+    volumes:
+      - zitadel-bootstrap:/bootstrap:ro
+volumes:
+  zitadel-bootstrap:

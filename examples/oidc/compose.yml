@@ -1,0 +1,7 @@
+services:
+  s3:
+    image: adobe/s3mock:5.1.0
+    ports:
+      - "127.0.0.1:19000:9090"
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: testbucket
