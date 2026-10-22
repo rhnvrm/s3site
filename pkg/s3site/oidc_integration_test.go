@@ -12,7 +12,7 @@ import (
 
 func TestOIDCS3Integration(t *testing.T) {
 	if testing.Short() {
-		t.Skip("requires local MinIO; see examples/oidc/README.md")
+		t.Skip("requires a local S3-compatible service; see examples/oidc/README.md")
 	}
 	for _, mode := range []StorageMode{StorageMemory, StorageDisk} {
 		t.Run(fmt.Sprint(mode), func(t *testing.T) {

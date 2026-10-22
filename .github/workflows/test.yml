@@ -31,3 +31,14 @@ jobs:
       - name: Stop local S3 service
         if: always()
         run: docker compose -p s3site-test -f examples/oidc/compose.yml down
+  zitadel:
+    name: Zitadel integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Test real Zitadel login and access policies
+        run: ./examples/oidc/test-zitadel.sh
