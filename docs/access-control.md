@@ -173,7 +173,7 @@ redirect, sign-in form, code exchange, PKCE, token verification, cookies, path
 rules, email verification, roles, denial, logout, and live policy changes.
 S3 integration tests also upload, extract, and refresh real tar.gz objects over
 HTTP in both disk and memory modes. Run `./examples/oidc/test-zitadel.sh` for an additional real-provider suite using
-Zitadel v4.19.5, its official Login V2 container, PostgreSQL, and S3Mock. It tests
+Zitadel v4.19.5, its official Login V2 container, PostgreSQL, and SeaweedFS. It tests
 real password checks, authorization codes, signed ID tokens, verified email and
 project role grants, subject IDs, denial and live policy revocation in both
 storage modes. The official login page is fetched; automated password entry and

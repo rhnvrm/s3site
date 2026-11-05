@@ -1,7 +1,20 @@
 services:
   s3:
-    image: adobe/s3mock:5.1.0
+    image: chrislusf/seaweedfs:4.48
     ports:
-      - "127.0.0.1:19000:9090"
+      - "127.0.0.1:19000:8333"
     environment:
-      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: testbucket
+      # Public local-test credentials; never use in production.
+      AWS_ACCESS_KEY_ID: s3site-test
+      AWS_SECRET_ACCESS_KEY: s3site-test-secret
+      S3_BUCKET: testbucket
+    volumes:
+      - seaweedfs-data:/data
+    command:
+      - mini
+      - -dir=/data
+      - -ip=127.0.0.1
+      - -s3.autoCreateBucket=false
+      - -s3.allowDeleteBucketNotEmpty=false
+volumes:
+  seaweedfs-data:

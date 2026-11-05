@@ -61,7 +61,7 @@ func runServe(args []string) {
 		region             = fs.String("region", envOr("AWS_S3_REGION", "us-east-1"), "AWS region")
 		ak                 = fs.String("access-key", envOr("AWS_S3_ACCESS_KEY", ""), "AWS access key")
 		sk                 = fs.String("secret-key", envOr("AWS_S3_SECRET_KEY", ""), "AWS secret key")
-		endpoint           = fs.String("endpoint", envOr("AWS_S3_ENDPOINT", ""), "Custom S3 endpoint (MinIO)")
+		endpoint           = fs.String("endpoint", envOr("AWS_S3_ENDPOINT", ""), "Custom S3 endpoint (SeaweedFS)")
 		prefix             = fs.String("prefix", envOr("S3SITE_PREFIX", ""), "S3 key prefix (optional)")
 		listen             = fs.String("listen", envOr("S3SITE_LISTEN", ":8080"), "HTTP listen address")
 		poll               = fs.Duration("poll", envDurOr("S3SITE_POLL", 30*time.Second), "Poll interval")

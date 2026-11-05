@@ -11,14 +11,13 @@ import (
 	"github.com/rhnvrm/simples3"
 )
 
-// setupIntegrationS3 creates a simples3 client pointing at the local MinIO.
-// Skips the test if AWS_S3_ENDPOINT is not set.
+// setupIntegrationS3 creates a client using AWS_S3_* settings or the local SeaweedFS fixture.
 func setupIntegrationS3(t *testing.T) (*simples3.S3, string) {
 	t.Helper()
 
 	endpoint := os.Getenv("AWS_S3_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "http://127.0.0.1:9000"
+		endpoint = "http://127.0.0.1:19000"
 	}
 
 	region := os.Getenv("AWS_S3_REGION")
@@ -28,12 +27,12 @@ func setupIntegrationS3(t *testing.T) (*simples3.S3, string) {
 
 	accessKey := os.Getenv("AWS_S3_ACCESS_KEY")
 	if accessKey == "" {
-		accessKey = "minioadmin"
+		accessKey = "s3site-test"
 	}
 
 	secretKey := os.Getenv("AWS_S3_SECRET_KEY")
 	if secretKey == "" {
-		secretKey = "minioadmin"
+		secretKey = "s3site-test-secret"
 	}
 
 	bucket := os.Getenv("AWS_S3_BUCKET")
