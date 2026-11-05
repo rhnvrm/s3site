@@ -15,7 +15,7 @@ s3site is configured via CLI flags. Every flag has a corresponding environment v
 | `-region` | `AWS_S3_REGION` | `us-east-1` | AWS region |
 | `-access-key` | `AWS_S3_ACCESS_KEY` | | AWS access key |
 | `-secret-key` | `AWS_S3_SECRET_KEY` | | AWS secret key |
-| `-endpoint` | `AWS_S3_ENDPOINT` | | Custom S3 endpoint (MinIO, etc.) |
+| `-endpoint` | `AWS_S3_ENDPOINT` | | Custom S3 endpoint (SeaweedFS, etc.) |
 | `-prefix` | `S3SITE_PREFIX` | | S3 key prefix for archives |
 | `-listen` | `S3SITE_LISTEN` | `:8080` | HTTP listen address |
 | `-poll` | `S3SITE_POLL` | `30s` | Poll interval for changes |
@@ -174,4 +174,4 @@ If `-data-dir` is not set, disk mode uses `$TMPDIR/s3site-data`.
 
 s3site uses [simples3](https://github.com/rhnvrm/simples3), a minimal S3 client. Credentials are passed directly via flags or env vars -- there is no AWS config file or credential chain.
 
-For IAM roles on EC2/ECS, you'll need to fetch temporary credentials and pass them in. For MinIO, just use the access/secret key pair.
+For IAM roles on EC2/ECS, you'll need to fetch temporary credentials and pass them in. For SeaweedFS, use the access/secret key pair.

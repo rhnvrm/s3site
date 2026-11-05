@@ -22,7 +22,7 @@ func setupS3(t *testing.T) (*simples3.S3, string) {
 
 	endpoint := os.Getenv("AWS_S3_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "http://127.0.0.1:9000"
+		endpoint = "http://127.0.0.1:19000"
 	}
 	region := os.Getenv("AWS_S3_REGION")
 	if region == "" {
@@ -30,11 +30,11 @@ func setupS3(t *testing.T) (*simples3.S3, string) {
 	}
 	accessKey := os.Getenv("AWS_S3_ACCESS_KEY")
 	if accessKey == "" {
-		accessKey = "minioadmin"
+		accessKey = "s3site-test"
 	}
 	secretKey := os.Getenv("AWS_S3_SECRET_KEY")
 	if secretKey == "" {
-		secretKey = "minioadmin"
+		secretKey = "s3site-test-secret"
 	}
 	bucket := os.Getenv("AWS_S3_BUCKET")
 	if bucket == "" {

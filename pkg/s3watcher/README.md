@@ -139,29 +139,22 @@ namespace is flat (no subdirectories). Unloaded files return
 
 ## Testing
 
-Tests run against MinIO via docker-compose:
+Run integration tests against the local SeaweedFS fixture. From the repository root
+(with Docker Compose and curl 7.75.0 or newer):
 
 ```bash
-# Start MinIO
-docker compose up -d
-sleep 3
-aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://testbucket
-
-# Run tests
-export AWS_S3_ENDPOINT=http://127.0.0.1:9000
-export AWS_S3_REGION=us-east-1
-export AWS_S3_ACCESS_KEY=minioadmin
-export AWS_S3_SECRET_KEY=minioadmin
-export AWS_S3_BUCKET=testbucket
-
-go test -v ./...
-
-# Or use the Justfile from the parent repo
-just setup
-go test -v ./...
+bash scripts/test-local.sh
 ```
 
-Unit tests (validation, copy safety, FS compliance) run without MinIO.
+Or start the fixture and run only the watcher tests:
+
+```bash
+bash scripts/seaweedfs-setup.sh
+source scripts/seaweedfs-env.sh
+go test -race -count=1 -v ./pkg/s3watcher
+```
+
+Unit tests (validation, copy safety, FS compliance) run without SeaweedFS.
 Integration tests cover the full lifecycle: initial load, change
 detection, lazy loading, cache eviction, and refresh.
 
@@ -174,7 +167,7 @@ go test -short ./...
 ## Design notes
 
 - **No interfaces to mock** - the package uses `*simples3.S3` directly.
-  For testing, point it at MinIO.
+  For testing, point it at SeaweedFS.
 - **Flat namespace** - file names are logical identifiers, not paths.
   This keeps the FS implementation simple and avoids path separator
   issues across platforms.

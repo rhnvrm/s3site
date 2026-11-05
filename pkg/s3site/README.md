@@ -79,14 +79,19 @@ When `key` is omitted, `LoadHostedSites` derives it from `prefix + hostname + ".
 
 ## Testing
 
-Requires MinIO for full integration coverage:
+Full integration coverage uses the local SeaweedFS fixture. From the repository root,
+with Docker Compose and curl 7.75.0 or newer:
 
 ```bash
-export AWS_S3_ENDPOINT=http://127.0.0.1:9000
-export AWS_S3_ACCESS_KEY=minioadmin
-export AWS_S3_SECRET_KEY=minioadmin
-export AWS_S3_BUCKET=testbucket
-
-go test -short ./...
-go test ./...
+bash scripts/test-local.sh
 ```
+
+To run only this package:
+
+```bash
+bash scripts/seaweedfs-setup.sh
+source scripts/seaweedfs-env.sh
+go test -race -count=1 ./pkg/s3site
+```
+
+Use `go test -short ./...` to run without the storage service.

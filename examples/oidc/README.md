@@ -1,7 +1,7 @@
 # Local OIDC login demo
 
-Requirements: Go, Docker Compose, curl, base64, and tar. No Zitadel tenant or AWS
-account is needed. Run from the repository root:
+Requirements: Go, Docker Compose, curl 7.75.0 or newer (with `--aws-sigv4`),
+base64, and tar. No Zitadel tenant or AWS account is needed. Run from the repository root:
 
 ```sh
 ./examples/oidc/run.sh
@@ -16,13 +16,13 @@ the private-site link. The local provider shows a sign-in form:
 
 Use the sign-out button or clear site cookies to try another user. The provider
 is intentionally passwordless and binds only to loopback. Never deploy it as an
-identity service. Adobe S3Mock supplies an ephemeral S3-compatible HTTP service on
+identity service. SeaweedFS 4.48 supplies an ephemeral S3-compatible HTTP service on
 127.0.0.1:19000; the provider uses 127.0.0.1:5556. Ctrl-C stops the processes,
 removes generated configuration and keys, and removes the demo container.
 
 The demo builds the actual s3site binary, packages the example site, uploads its
-archive over HTTP, and runs the production OIDC handler. To use real Zitadel,
-follow [the configuration guide](../../docs/access-control.md#zitadel-setup).
+archive with an authenticated S3 request, and runs the production OIDC handler.
+To use real Zitadel, follow [the configuration guide](../../docs/access-control.md#zitadel-setup).
 
 ## Automated tests
 
@@ -35,15 +35,13 @@ go test ./... -short -race -count=1
 To run S3-backed integration tests separately:
 
 ```sh
-docker compose -p s3site-oidc-demo -f examples/oidc/compose.yml up -d
-# Wait until this succeeds:
-curl -fsS http://127.0.0.1:19000/testbucket
-AWS_S3_ENDPOINT=http://127.0.0.1:19000 go test ./... -race -count=1
-docker compose -p s3site-oidc-demo -f examples/oidc/compose.yml down
+bash scripts/test-local.sh
+# Remove containers and test data when finished:
+docker compose -p s3site-test -f examples/oidc/compose.yml down --volumes --remove-orphans
 ```
 
-The full suite also works against an existing MinIO instance using the repository's
-`AWS_S3_*` settings. The OIDC S3 test uses isolated object keys and covers memory
+The full suite also works against another S3-compatible test endpoint using
+the repository's `AWS_S3_*` settings. The OIDC S3 test uses isolated object keys and covers memory
 and disk extraction, a complete login, failed deployment rollback, and access
 revocation after refresh. All OIDC tests use a local fixture signing real JWTs
 and checking one-use authorization codes and PKCE. Those fast tests do not contact Zitadel. Use the real-provider test below to
@@ -59,9 +57,9 @@ Run the complete real-provider integration test with:
 ```
 
 This starts pinned Zitadel **v4.19.5**, the official **Login V2** image,
-PostgreSQL, and S3Mock. It needs Docker Compose, curl, and a patched Go toolchain
-(Go 1.26.10 or newer is recommended). Ports 18080 (Zitadel), 13000 (Login V2), and
-19000 (S3Mock) must be free; they bind only to 127.0.0.1. The fixed test credentials
+PostgreSQL, and SeaweedFS. It needs Docker Compose, curl 7.75.0 or newer, and
+a patched Go toolchain (Go 1.26.10 or newer is recommended). Ports 18080 (Zitadel), 13000 (Login V2), and
+19000 (SeaweedFS) must be free; they bind only to 127.0.0.1. The fixed test credentials
 and master key are for this disposable local fixture only.
 
 The harness creates real users, a project role, user grants, and a public PKCE

@@ -263,19 +263,43 @@ The published container image listens on port 80 by default. Override with
 
 ## Development
 
-Requires Docker for MinIO:
+Run unit tests without a storage service:
 
 ```bash
-# Start MinIO
-export AWS_S3_ENDPOINT=http://127.0.0.1:9000
-export AWS_S3_ACCESS_KEY=minioadmin
-export AWS_S3_SECRET_KEY=minioadmin
-export AWS_S3_BUCKET=testbucket
-
-go test -short ./...
+go test -short -race -count=1 ./...
 ```
 
-Run full integration tests with a live MinIO instance on `127.0.0.1:9000`.
+Full integration tests require Docker Compose and curl with `--aws-sigv4`
+support (curl 7.75.0 or newer). From the repository root:
+
+```bash
+bash scripts/test-local.sh
+```
+
+This starts `chrislusf/seaweedfs:4.48` in single-process `mini` mode, seeds
+`testbucket` and public local-test credentials, waits for authenticated bucket
+access, and runs the full suite with the race detector and Go's test cache
+disabled. The S3 API binds only to `127.0.0.1:19000`. Automatic bucket creation
+on upload and recursive deletion of non-empty buckets are disabled.
+
+To start the fixture and run commands separately:
+
+```bash
+bash scripts/seaweedfs-setup.sh
+source scripts/seaweedfs-env.sh
+go test -race -count=1 ./...
+```
+
+The fixture retains data between starts. Remove its containers and test data with:
+
+```bash
+docker compose -p s3site-test -f examples/oidc/compose.yml down --volumes --remove-orphans
+```
+
+`docker-compose.yml` runs the application for deployment; the local test fixture
+is defined in `examples/oidc/compose.yml`. Use `AWS_S3_*` settings to run tests
+against another S3-compatible test endpoint. The local setup scripts select the
+fixed fixture settings in `scripts/seaweedfs-env.sh`.
 
 ## Packages
 

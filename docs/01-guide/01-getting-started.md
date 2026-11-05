@@ -57,15 +57,18 @@ s3site \
 
 Point DNS for `docs.example.com` at the server. The site is live.
 
-## Using MinIO or S3-compatible storage
+## Using SeaweedFS or S3-compatible storage
+
+For the local fixture, run `bash scripts/seaweedfs-setup.sh` from the repository
+root, then use its public test credentials:
 
 ```bash
 s3site \
-  -bucket my-bucket \
+  -bucket testbucket \
   -prefix sites/ \
-  -endpoint http://minio:9000 \
-  -access-key minioadmin \
-  -secret-key minioadmin \
+  -endpoint http://127.0.0.1:19000 \
+  -access-key s3site-test \
+  -secret-key s3site-test-secret \
   -listen :8080
 ```
 
